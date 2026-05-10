@@ -188,7 +188,7 @@ export async function createMyzeOrder(
         const response =
             await fetch(
 
-                `https://api.myze.brother.digital/company/${MYZE_COMPANY_ID}/store/${MYZE_STORE_ID}/place-order`,
+                `https://bb6pq1fm23.execute-api.eu-central-1.amazonaws.com/test/company/${MYZE_COMPANY_ID}/store/${MYZE_STORE_ID}/place-order`,
 
                 {
                     method: "POST",
