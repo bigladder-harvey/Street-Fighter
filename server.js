@@ -17,6 +17,7 @@ import myzeRoute from "./routes/myze.js";
 ========================= */
 
 import myzeWebhook from "./webhooks/myze.js";
+import shopifyOrdersWebhook from "./webhooks/shopifyOrders.js";
 
 /* =========================
    ENV CONFIG
@@ -65,7 +66,7 @@ app.use(cors({
 ========================= */
 
 app.use("/webhooks/myze", myzeWebhook);
-
+app.use("/webhooks/shopifyOrders", shopifyOrdersWebhook);
 /* =========================
    JSON BODY PARSER
    EXCLUDE WEBHOOKS
@@ -74,7 +75,8 @@ app.use("/webhooks/myze", myzeWebhook);
 app.use((req, res, next) => {
 
     if (
-        req.originalUrl.startsWith("/webhooks/myze")
+        req.originalUrl.startsWith("/webhooks/myze") ||
+        req.originalUrl.startsWith("/webhooks/shopifyOrders")
     ) {
 
         next();
