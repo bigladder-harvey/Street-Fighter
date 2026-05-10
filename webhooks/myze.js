@@ -83,7 +83,7 @@ function verifySignature(req) {
             crypto
                 .createHmac(
                     "sha256",
-                    process.env.MYZE_API_KEY
+                    process.env.MYZE_WEBHOOK_SECRET
                 )
                 .update(signedPayload)
                 .digest("base64");
@@ -126,21 +126,21 @@ router.post(
                VERIFY WEBHOOK
             ========================= */
 
-            // const valid =
-            //     verifySignature(req);
+            const valid =
+                verifySignature(req);
 
-            // if (!valid) {
+            if (!valid) {
 
-            //     return res.status(401).json({
-            //         success: false,
-            //         error: "Invalid webhook signature"
-            //     });
-            // }
-            console.log(req.headers);
+                return res.status(401).json({
+                    success: false,
+                    error: "Invalid webhook signature"
+                });
+            }
+            // console.log(req.headers);
 
-            console.log(req.body.toString());
+            // console.log(req.body.toString());
 
-            const valid = true;
+            // const valid = true;
 
             /* =========================
                PARSE PAYLOAD
