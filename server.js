@@ -30,6 +30,8 @@ dotenv.config();
 
 const app = express();
 
+app.set('trust proxy', 1);
+
 /* =========================
    CORS
 ========================= */
@@ -38,7 +40,10 @@ const app = express();
 
 const allowedOrigins = [
     'http://127.0.0.1:9292',     // Your local dev server
-    'https://officialstreetfighter.com' // Your live production domain
+    'https://officialstreetfighter.com',
+    'https://www.officialstreetfighter.com',
+    'https://street-fighter-store-2.myshopify.com',
+    'https://www.street-fighter-store-2.myshopify.com',
 ];
 
 app.use(cors({
