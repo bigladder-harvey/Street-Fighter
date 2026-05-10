@@ -10,6 +10,9 @@ const MYZE_API_KEY =
 const MYZE_STORE_ID =
     process.env.MYZE_STORE_ID;
 
+const MYZE_COMPANY_ID =
+    process.env.MYZE_COMPANY_ID;
+
 /* =========================================
    CREATE MYZE ORDER
 ========================================= */
@@ -185,7 +188,7 @@ export async function createMyzeOrder(
         const response =
             await fetch(
 
-                `https://bb6pq1fm23.execute-api.eu-central-1.amazonaws.com/test/company/01KHNVBJD7GY2XTDAF59FS2J1P-BIMH/store/01KR7QZMEN6AWGA35GANY8RK63`,
+                `https://api.stage.myze.brother.digital/company/${MYZE_COMPANY_ID}/store/${MYZE_STORE_ID}/place-order`,
 
                 {
                     method: "POST",
