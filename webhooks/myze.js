@@ -2,9 +2,18 @@ import express from "express";
 import crypto from "crypto";
 
 import {
+    getCache,
+    setCache
+} from "../utils/redis.js";
+
+import {
     createProduct,
     getCollectionByHandle,
     addProductToCollection
+} from "../services/shopify.js";
+
+import {
+    createShopifyFulfillment
 } from "../services/shopify.js";
 
 const router = express.Router();
@@ -294,6 +303,206 @@ router.post(
                 success: false,
                 error:
                     "Failed to process webhook"
+            });
+        }
+    }
+);
+
+/* =========================
+   ORDER SHIPPED WEBHOOK
+========================= */
+
+router.post(
+
+    "/order-shipped",
+
+    async (req, res) => {
+
+        try {
+
+            /* =========================
+               VERIFY SIGNATURE
+            ========================= */
+
+            const isValid =
+                verifySignature(req);
+
+            if (!isValid) {
+
+                return res.status(401).json({
+
+                    success: false,
+
+                    error:
+                        "Invalid signature"
+                });
+            }
+
+            /* =========================
+               PARSE BODY
+            ========================= */
+
+            const body = JSON.parse(
+                req.body.toString("utf8")
+            );
+
+            /* =========================
+               EVENT TYPE CHECK
+            ========================= */
+
+            if (
+                body.eventType !==
+                "order.shipped"
+            ) {
+
+                return res.status(200).json({
+
+                    success: true,
+
+                    ignored: true
+                });
+            }
+
+            /* =========================
+               WEBHOOK ID
+            ========================= */
+
+            const webhookId =
+                body.id;
+
+            /* =========================
+               DUPLICATE PROTECTION
+            ========================= */
+
+            const redisKey =
+                `myze:webhook:${webhookId}`;
+
+            const alreadyProcessed =
+                await getCache(redisKey);
+
+            if (alreadyProcessed) {
+
+                console.log(
+
+                    `⚠️ Duplicate Myze webhook: ${webhookId}`
+
+                );
+
+                return res.status(200).json({
+
+                    success: true,
+
+                    duplicate: true
+                });
+            }
+
+            /* =========================
+               STORE WEBHOOK IN REDIS
+            ========================= */
+
+            await setCache(
+
+                redisKey,
+
+                {
+                    processed: true
+                },
+
+                60 * 60 * 24 * 7
+            );
+
+            /* =========================
+               ORDER DATA
+            ========================= */
+
+            const orderData =
+                body.data;
+
+            /* =========================
+               SHOPIFY ORDER ID
+            ========================= */
+
+            const shopifyOrderId =
+                orderData.externalId;
+
+            if (!shopifyOrderId) {
+
+                throw new Error(
+                    "Missing Shopify order ID"
+                );
+            }
+
+            /* =========================
+               SHIPMENT INFO
+            ========================= */
+
+            const shipmentInfo =
+                orderData.shipmentInfo || {};
+
+            const trackingNumber =
+                shipmentInfo.trackingCode || "";
+
+            const trackingUrl =
+                shipmentInfo.trackingUrl || "";
+
+            const carrier =
+                shipmentInfo.carrier || "";
+
+            /* =========================
+               LOG
+            ========================= */
+
+            console.log(
+
+                `📦 Myze shipped Shopify order ${shopifyOrderId}`
+
+            );
+
+            /* =========================
+               CREATE SHOPIFY FULFILLMENT
+            ========================= */
+
+            await createShopifyFulfillment({
+
+                shopifyOrderId,
+
+                trackingNumber,
+
+                trackingUrl,
+
+                carrier
+            });
+
+            /* =========================
+               SUCCESS
+            ========================= */
+
+            console.log(
+
+                `✅ Shopify order fulfilled ${shopifyOrderId}`
+
+            );
+
+            return res.status(200).json({
+
+                success: true
+            });
+
+        } catch (err) {
+
+            console.error(
+
+                "❌ Myze shipped webhook error:",
+
+                err
+            );
+
+            return res.status(500).json({
+
+                success: false,
+
+                error:
+                    "Webhook processing failed"
             });
         }
     }

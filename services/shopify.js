@@ -304,6 +304,167 @@ export async function getLocations() {
     }
 }
 
+/* =========================================
+   GET FULFILLMENT ORDERS
+========================================= */
+
+export async function getFulfillmentOrders(
+    shopifyOrderId
+) {
+
+    try {
+
+        const data =
+            await shopifyRequest(
+
+                `/orders/${shopifyOrderId}/fulfillment_orders.json`
+
+            );
+
+        return (
+            data.fulfillment_orders || []
+        );
+
+    } catch (err) {
+
+        console.error(
+            "getFulfillmentOrders failed:",
+            err
+        );
+
+        throw err;
+    }
+}
+
+/* =========================================
+   CREATE SHOPIFY FULFILLMENT
+========================================= */
+
+export async function createShopifyFulfillment({
+
+    shopifyOrderId,
+
+    trackingNumber = "",
+
+    trackingUrl = "",
+
+    carrier = ""
+
+}) {
+
+    try {
+
+        /*
+        =====================================
+        GET FULFILLMENT ORDERS
+        =====================================
+        */
+
+        const fulfillmentOrders =
+            await getFulfillmentOrders(
+                shopifyOrderId
+            );
+
+        if (
+            !fulfillmentOrders.length
+        ) {
+
+            throw new Error(
+                "No fulfillment orders found"
+            );
+        }
+
+        /*
+        =====================================
+        USE FIRST FULFILLMENT ORDER
+        =====================================
+        */
+
+        const fulfillmentOrder =
+            fulfillmentOrders[0];
+
+        /*
+        =====================================
+        BUILD PAYLOAD
+        =====================================
+        */
+
+        const payload = {
+
+            fulfillment: {
+
+                /*
+                Notify customer
+                */
+
+                notify_customer: true,
+
+                /*
+                Tracking
+                */
+
+                tracking_info: {
+
+                    number:
+                        String(trackingNumber),
+
+                    url:
+                        trackingUrl,
+
+                    company:
+                        carrier
+                },
+
+                /*
+                Fulfillment order
+                */
+
+                line_items_by_fulfillment_order: [
+
+                    {
+
+                        fulfillment_order_id:
+                            fulfillmentOrder.id
+                    }
+                ]
+            }
+        };
+
+        /*
+        =====================================
+        CREATE FULFILLMENT
+        =====================================
+        */
+
+        const data =
+            await shopifyRequest(
+
+                "/fulfillments.json",
+
+                "POST",
+
+                payload
+            );
+
+        console.log(
+
+            `✅ Shopify fulfillment created for order ${shopifyOrderId}`
+
+        );
+
+        return data;
+
+    } catch (err) {
+
+        console.error(
+            "createShopifyFulfillment failed:",
+            err
+        );
+
+        throw err;
+    }
+}
+
 /* =========================
    EXPORT REQUEST HELPER
 ========================= */
