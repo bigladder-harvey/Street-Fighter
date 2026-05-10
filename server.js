@@ -34,7 +34,25 @@ const app = express();
    CORS
 ========================= */
 
-app.use(cors());
+// app.use(cors());
+
+const allowedOrigins = [
+    'http://127.0.0.1:9292',     // Your local dev server
+    'https://officialstreetfighter.com' // Your live production domain
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    }
+}));
 
 /* =========================
    WEBHOOK ROUTES
