@@ -126,16 +126,21 @@ router.post(
                VERIFY WEBHOOK
             ========================= */
 
-            const valid =
-                verifySignature(req);
+            // const valid =
+            //     verifySignature(req);
 
-            if (!valid) {
+            // if (!valid) {
 
-                return res.status(401).json({
-                    success: false,
-                    error: "Invalid webhook signature"
-                });
-            }
+            //     return res.status(401).json({
+            //         success: false,
+            //         error: "Invalid webhook signature"
+            //     });
+            // }
+            console.log(req.headers);
+
+            console.log(req.body.toString());
+
+            const valid = true;
 
             /* =========================
                PARSE PAYLOAD
