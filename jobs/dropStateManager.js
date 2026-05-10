@@ -213,7 +213,7 @@ export async function runDropStateManager() {
                             field.namespace ===
                             "custom" &&
                             field.key ===
-                            "drop_state"
+                            "state"
                     );
 
                 /*
