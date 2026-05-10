@@ -123,11 +123,49 @@ function collectionHasInventory(
     products
 ) {
 
+    if (!Array.isArray(products)) {
+        return false;
+    }
+
     for (const product of products) {
+
+        /*
+          Skip invalid products
+        */
+
+        if (
+            !product ||
+            !Array.isArray(product.variants)
+        ) {
+
+            console.log(
+                `⚠ Invalid product variants for product ${product?.id}`
+            );
+
+            continue;
+        }
+
+        /*
+          Check variants
+        */
 
         for (const variant of product.variants) {
 
+            /*
+              Skip invalid variants
+            */
+
+            if (!variant) {
+                continue;
+            }
+
+            /*
+              Inventory detected
+            */
+
             if (
+                typeof variant.inventory_quantity ===
+                "number" &&
                 variant.inventory_quantity > 0
             ) {
 
