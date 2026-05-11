@@ -123,14 +123,41 @@ function collectionHasInventory(
     products
 ) {
 
+    /*
+    =====================================
+    INVALID PRODUCTS ARRAY
+    =====================================
+    */
+
     if (!Array.isArray(products)) {
-        return false;
+
+        console.log(
+            "⚠ Invalid products array"
+        );
+
+        return null;
     }
+
+    /*
+    =====================================
+    TRACK VALID VARIANTS
+    =====================================
+    */
+
+    let checkedVariants = 0;
+
+    /*
+    =====================================
+    LOOP PRODUCTS
+    =====================================
+    */
 
     for (const product of products) {
 
         /*
-          Skip invalid products
+        =====================================
+        INVALID PRODUCT
+        =====================================
         */
 
         if (
@@ -139,40 +166,84 @@ function collectionHasInventory(
         ) {
 
             console.log(
+
                 `⚠ Invalid product variants for product ${product?.id}`
+
             );
 
             continue;
         }
 
         /*
-          Check variants
+        =====================================
+        LOOP VARIANTS
+        =====================================
         */
 
         for (const variant of product.variants) {
 
             /*
-              Skip invalid variants
+            =====================================
+            INVALID VARIANT
+            =====================================
             */
 
             if (!variant) {
                 continue;
             }
 
+            checkedVariants++;
+
             /*
-              Inventory detected
+            =====================================
+            INVENTORY
+            =====================================
             */
 
-            if (
-                typeof variant.inventory_quantity ===
-                "number" &&
-                variant.inventory_quantity > 0
-            ) {
+            const inventory =
+                Number(
+                    variant.inventory_quantity || 0
+                );
+
+            /*
+            =====================================
+            HAS STOCK
+            =====================================
+            */
+
+            if (inventory > 0) {
+
+                console.log(
+
+                    `✅ Inventory detected for variant ${variant.id}`
+
+                );
 
                 return true;
             }
         }
     }
+
+    /*
+    =====================================
+    NO VALID VARIANTS FOUND
+    =====================================
+    */
+
+    if (checkedVariants === 0) {
+
+        console.log(
+            "⚠ No valid variants checked"
+        );
+
+        return null;
+    }
+
+    /*
+    =====================================
+    NO STOCK FOUND
+    =====================================
+    */
 
     return false;
 }
@@ -285,7 +356,7 @@ export async function runDropStateManager() {
 
                 const productsData =
                     await shopifyRequest(
-                        `/collections/${collection.id}/products.json?fields=id,title,variants`
+                        `/collections/${collection.id}/products.json`
                     );
 
                 const products =
@@ -325,7 +396,7 @@ export async function runDropStateManager() {
 
                 if (
                     now >= dropStart &&
-                    !hasInventory
+                    hasInventory === false
                 ) {
 
                     newState = "archive";
