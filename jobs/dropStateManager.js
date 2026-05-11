@@ -350,17 +350,62 @@ export async function runDropStateManager() {
                         dropStartField.value
                     ).getTime();
 
+                // /* =================================
+                //    GET PRODUCTS
+                // ================================= */
+
+                // const productsData =
+                //     await shopifyRequest(
+                //         `/collections/${collection.id}/products.json`
+                //     );
+
+                // const products =
+                //     productsData.products || [];
+
                 /* =================================
-                   GET PRODUCTS
+                   GET COLLECTION PRODUCTS
                 ================================= */
 
-                const productsData =
+                const collectionProductsData =
                     await shopifyRequest(
-                        `/collections/${collection.id}/products.json`
+                        `/collections/${collection.id}/products.json?fields=id`
                     );
 
-                const products =
-                    productsData.products || [];
+                const collectionProducts =
+                    collectionProductsData.products || [];
+
+                /* =================================
+                   FETCH FULL PRODUCTS
+                ================================= */
+
+                const products = [];
+
+                for (const item of collectionProducts) {
+
+                    try {
+
+                        const productData =
+                            await shopifyRequest(
+                                `/products/${item.id}.json`
+                            );
+
+                        if (productData.product) {
+
+                            products.push(
+                                productData.product
+                            );
+                        }
+
+                    } catch (err) {
+
+                        console.error(
+
+                            `Failed fetching product ${item.id}`,
+
+                            err
+                        );
+                    }
+                }
 
                 /* =================================
                    INVENTORY CHECK
@@ -372,42 +417,59 @@ export async function runDropStateManager() {
                     );
 
                 /* =================================
-                   DETERMINE STATE
-                ================================= */
-
-                let newState =
-                    "coming-soon";
-
-                /*
-                  LIVE
-                */
-
-                if (
-                    now >= dropStart &&
-                    hasInventory
-                ) {
-
-                    newState = "live";
-                }
-
-                /*
-                  ARCHIVE
-                */
-
-                if (
-                    now >= dropStart &&
-                    hasInventory === false
-                ) {
-
-                    newState = "archive";
-                }
-
-                /* =================================
-                   CURRENT STATE
-                ================================= */
+   CURRENT STATE
+================================= */
 
                 const currentState =
                     dropStateField.value;
+
+                /* =================================
+                   DEFAULT TO CURRENT STATE
+                ================================= */
+
+                let newState =
+                    currentState;
+
+                /* =================================
+                   BEFORE DROP
+                ================================= */
+
+                if (now < dropStart) {
+
+                    newState =
+                        "coming-soon";
+                }
+
+                /* =================================
+                   AFTER DROP + INVENTORY EXISTS
+                ================================= */
+
+                else if (hasInventory === true) {
+
+                    newState =
+                        "live";
+                }
+
+                /* =================================
+                   AFTER DROP + NO INVENTORY
+                ================================= */
+
+                else if (hasInventory === false) {
+
+                    newState =
+                        "archive";
+                }
+
+                /* =================================
+                   INVENTORY CHECK FAILED
+                ================================= */
+
+                else {
+
+                    console.log(
+                        "⚠ Inventory check failed — preserving current state"
+                    );
+                }
 
                 /*
                   No update needed
