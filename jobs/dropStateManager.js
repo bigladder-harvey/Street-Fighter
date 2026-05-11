@@ -447,7 +447,7 @@ export async function runDropStateManager() {
                 else if (hasInventory === true) {
 
                     newState =
-                        "live";
+                        "limited";
                 }
 
                 /* =================================
