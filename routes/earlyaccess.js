@@ -103,6 +103,10 @@ router.post(
                 );
             }
 
+            return res.status(200).json({
+                success: true
+            });
+
         } catch (err) {
 
             console.error(
