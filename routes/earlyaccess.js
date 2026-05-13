@@ -26,27 +26,6 @@ router.post(
         try {
 
             const {
-                email
-            } = req.body;
-
-            /* =========================
-               VALIDATION
-            ========================= */
-
-            if (!email) {
-
-                return res.status(400).json({
-                    success: false,
-                    message:
-                        "Email is required"
-                });
-            }
-
-            /* =========================
-               CREATE CONTACT
-            ========================= */
-
-            const {
                 data,
                 error
             } = await resend.contacts.create({
@@ -68,10 +47,6 @@ router.post(
             ========================= */
 
             if (error) {
-
-                /*
-                  Ignore duplicate contacts
-                */
 
                 if (
                     error.message
@@ -98,14 +73,26 @@ router.post(
             }
 
             /* =========================
-               SUCCESS
+               SEND EVENT
             ========================= */
 
-            return res.json({
-                success: true,
-                contactId:
-                    data?.id || null
+            const {
+                error: eventError
+            } = await resend.events.send({
+
+                event:
+                    "early.access",
+
+                email,
             });
+
+            if (eventError) {
+
+                console.error(
+                    "Resend Event Error:",
+                    eventError
+                );
+            }
 
         } catch (err) {
 
