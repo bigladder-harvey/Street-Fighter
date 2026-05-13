@@ -11,6 +11,7 @@ import dropsRoute from "./routes/drops.js";
 import klaviyoRoute from "./routes/klaviyo.js";
 import contactRoute from "./routes/contact.js";
 import myzeRoute from "./routes/myze.js";
+import earlyaccessRoute from "./routes/earlyaccess.js";
 
 /* =========================
    WEBHOOKS
@@ -116,6 +117,8 @@ app.use("/klaviyo", klaviyoRoute);
 app.use("/contact", contactRoute);
 
 app.use("/myze", myzeRoute);
+
+app.use("/earlyaccess", earlyaccessRoute);
 
 /* =========================
    ROOT ROUTE
