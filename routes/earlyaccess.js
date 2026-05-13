@@ -35,6 +35,7 @@ router.post(
             }
 
             const {
+                data,
                 error
             } = await resend.contacts.create({
 
