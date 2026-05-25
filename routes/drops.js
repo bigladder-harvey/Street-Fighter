@@ -1,6 +1,5 @@
 import express from "express";
 import fetch from "node-fetch";
-
 import { getCache, setCache } from "../utils/redis.js";
 
 const router = express.Router();
@@ -32,7 +31,6 @@ async function fetchCollections() {
     }
 
     const data = await response.json();
-
     return data.custom_collections || [];
 }
 
@@ -54,7 +52,6 @@ async function fetchCollectionProducts(collectionId) {
     }
 
     const data = await response.json();
-
     return data.products || [];
 }
 
@@ -76,7 +73,6 @@ async function fetchCollectionMetafields(collectionId) {
     }
 
     const data = await response.json();
-
     return data.metafields || [];
 }
 
@@ -100,7 +96,7 @@ function determineStatus(dropStart, products) {
     });
 
     if (hasStock) {
-        return "live";
+        return "limited";
     }
 
     return "archive";
@@ -111,11 +107,9 @@ function determineStatus(dropStart, products) {
 ========================= */
 
 async function getDrops() {
-
     /* =========================
        CHECK REDIS CACHE
     ========================= */
-
     const cachedDrops = await getCache("drops");
 
     if (cachedDrops) {
@@ -126,14 +120,14 @@ async function getDrops() {
     console.log("🛒 Fetching drops from Shopify");
 
     const collections = await fetchCollections();
-
     const drops = [];
 
     for (const collection of collections) {
-
         try {
-
-            const metafields = await fetchCollectionMetafields(collection.id);
+            const metafields =
+                await fetchCollectionMetafields(
+                    collection.id
+                );
 
             // Find drop date metafield
             const dropStartField = metafields.find(field => {
@@ -148,24 +142,42 @@ async function getDrops() {
                 continue;
             }
 
-            const products = await fetchCollectionProducts(collection.id);
+            // Find era metafield
+            const eraField = metafields.find(field => {
+                return (
+                    field.namespace === "custom" &&
+                    field.key === "era"
+                );
+            });
 
-            const dropStart = new Date(dropStartField.value).getTime();
+            // Find state metafield
+            const stateField = metafields.find(field => {
+                return (
+                    field.namespace === "custom" &&
+                    field.key === "state"
+                );
+            });
 
-            const status = determineStatus(dropStart, products);
+            const products =
+                await fetchCollectionProducts(
+                    collection.id
+                );
+
+            const dropStart =
+                new Date(dropStartField.value).getTime();
+
+            const status =
+                determineStatus(dropStart, products);
 
             drops.push({
                 id: collection.id,
                 title: collection.title,
                 handle: collection.handle,
                 image: collection.image?.src || null,
-
                 dropStart,
-
                 status,
-
+                era: eraField?.value || null,
                 productCount: products.length,
-
                 products: products.map(product => ({
                     id: product.id,
                     title: product.title,
@@ -185,7 +197,6 @@ async function getDrops() {
     /* =========================
        SORT BY DROP DATE
     ========================= */
-
     drops.sort((a, b) => {
         return a.dropStart - b.dropStart;
     });
@@ -193,7 +204,6 @@ async function getDrops() {
     /* =========================
        SAVE TO REDIS
     ========================= */
-
     await setCache("drops", drops, 60);
 
     return drops;
@@ -205,7 +215,6 @@ async function getDrops() {
 
 function getNextDrop(drops) {
     const now = Date.now();
-
     return drops.find(drop => {
         return drop.dropStart > now;
     }) || null;
@@ -216,27 +225,19 @@ function getNextDrop(drops) {
 ========================= */
 
 router.get("/", async (req, res) => {
-
     try {
-
         const drops = await getDrops();
-
         const nextDrop = getNextDrop(drops);
 
         res.json({
             success: true,
-
             serverTime: Date.now(),
-
             nextDrop,
-
             drops
         });
 
     } catch (err) {
-
         console.error("Drops route error:", err);
-
         res.status(500).json({
             success: false,
             error: err.message
