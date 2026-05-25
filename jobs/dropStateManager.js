@@ -339,12 +339,11 @@ async function updateThemeEra(eraValue) {
 
         /* =========================
            UPDATE CURRENT ERA COLOR
+           current_era lives directly
+           under settingsJson.current
         ========================= */
-        if (
-            settingsJson.current &&
-            settingsJson.current.colors
-        ) {
-            settingsJson.current.colors.current_era =
+        if (settingsJson.current) {
+            settingsJson.current.current_era =
                 color;
         }
 
