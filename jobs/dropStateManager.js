@@ -215,11 +215,13 @@ async function sendEarlyAccessEmail({
             `https://${SHOPIFY_STORE}/collections/${collectionHandle}`;
 
         /* =========================
-           SEND BROADCAST VIA RESEND
+           CREATE BROADCAST + SEND
+           send: true sends immediately
+           segmentId is the correct field
         ========================= */
         const { data, error } =
             await resend.broadcasts.create({
-                audience_id: SEGMENT_ID,
+                segmentId: SEGMENT_ID,
                 from: process.env.RESEND_FROM_EMAIL,
                 subject: `🔓 Early Access: ${collectionTitle} drops in 20 minutes`,
                 html: `
@@ -237,8 +239,12 @@ async function sendEarlyAccessEmail({
                         <p style="margin-top: 24px; font-size: 12px; color: #999;">
                             This password will unlock the product grid before the official launch.
                         </p>
+                        <p style="font-size: 12px; color: #999;">
+                            <a href="{{{RESEND_UNSUBSCRIBE_URL}}}" style="color: #999;">Unsubscribe</a>
+                        </p>
                     </div>
-                `
+                `,
+                send: true
             });
 
         if (error) {
@@ -248,11 +254,6 @@ async function sendEarlyAccessEmail({
             );
             return;
         }
-
-        /* =========================
-           SEND BROADCAST
-        ========================= */
-        await resend.broadcasts.send(data.id);
 
         /* =========================
            MARK AS SENT IN REDIS
@@ -265,7 +266,7 @@ async function sendEarlyAccessEmail({
         );
 
         console.log(
-            `✅ Early access email sent for collection ${collectionId}`
+            `✅ Early access email sent for collection ${collectionId} — broadcast id: ${data.id}`
         );
     } catch (err) {
         console.error(
@@ -274,6 +275,7 @@ async function sendEarlyAccessEmail({
         );
     }
 }
+
 
 /* =========================================
    UPDATE THEME ERA
