@@ -332,38 +332,87 @@ async function updateThemeEra(eraValue) {
                 `/themes/${mainTheme.id}/assets.json?asset[key]=config/settings_data.json`
             );
 
-        const settingsJson =
-            JSON.parse(
+        /* =========================
+           SAFELY PARSE EXISTING JSON
+           Fall back to empty current
+           if file is empty or malformed
+        ========================= */
+        let settingsJson = { current: {} };
+
+        try {
+            const parsed = JSON.parse(
                 assetData.asset.value
             );
+            if (
+                parsed &&
+                typeof parsed === "object"
+            ) {
+                settingsJson = parsed;
+            }
+        } catch (parseErr) {
+            console.warn(
+                "⚠ Could not parse settings_data.json, starting fresh:",
+                parseErr.message
+            );
+        }
 
         /* =========================
-           UPDATE CURRENT ERA COLOR
-           current_era lives directly
-           under settingsJson.current
+           ENSURE current EXISTS
         ========================= */
-        if (settingsJson.current) {
-            settingsJson.current.current_era =
-                color;
+        if (
+            !settingsJson.current ||
+            typeof settingsJson.current !== "object"
+        ) {
+            settingsJson.current = {};
         }
+
+        /* =========================
+           PATCH ONLY current_era
+           All other keys preserved
+        ========================= */
+        settingsJson.current.current_era = color;
 
         /* =========================
            SAVE BACK TO SHOPIFY
         ========================= */
+        const updatedValue = JSON.stringify(
+            settingsJson,
+            null,
+            2
+        );
+
         await shopifyRequest(
             `/themes/${mainTheme.id}/assets.json`,
             "PUT",
             {
                 asset: {
                     key: "config/settings_data.json",
-                    value: JSON.stringify(
-                        settingsJson,
-                        null,
-                        2
-                    )
+                    value: updatedValue
                 }
             }
         );
+
+        /* =========================
+           VERIFY WRITE SUCCEEDED
+           Read back and confirm
+        ========================= */
+        const verifyData =
+            await shopifyRequest(
+                `/themes/${mainTheme.id}/assets.json?asset[key]=config/settings_data.json`
+            );
+
+        const verifyJson = JSON.parse(
+            verifyData.asset.value
+        );
+
+        if (
+            verifyJson?.current?.current_era !== color
+        ) {
+            console.error(
+                `❌ Theme era write verification failed — expected ${color}, got ${verifyJson?.current?.current_era}`
+            );
+            return;
+        }
 
         /* =========================
            CACHE THE NEW VALUE
@@ -375,7 +424,7 @@ async function updateThemeEra(eraValue) {
         );
 
         console.log(
-            `✅ Theme era updated → ${eraValue} (${color})`
+            `✅ Theme era updated and verified → ${eraValue} (${color})`
         );
     } catch (err) {
         console.error(
