@@ -1,4 +1,6 @@
 import fetch from "node-fetch";
+import { Resend } from "resend";
+import { getCache, setCache } from "../utils/redis.js";
 
 /* =========================================
    SHOPIFY CONFIG
@@ -6,12 +8,36 @@ import fetch from "node-fetch";
 
 const SHOPIFY_STORE =
     process.env.SHOPIFY_STORE;
-
 const SHOPIFY_ADMIN_TOKEN =
     process.env.SHOPIFY_ADMIN_TOKEN;
-
 const SHOPIFY_API_VERSION =
     "2024-01";
+
+/* =========================================
+   RESEND CONFIG
+========================================= */
+
+const resend = new Resend(
+    process.env.RESEND_API_KEY
+);
+const SEGMENT_ID =
+    process.env.RESEND_SEGMENT_ID;
+
+/* =========================================
+   ERA → COLOR MAP
+========================================= */
+
+const ERA_COLOR_MAP = {
+    sf2: "#f5c518",
+    sf6: "#00aeef"
+};
+
+/* =========================================
+   EARLY ACCESS WINDOW (20 minutes)
+========================================= */
+
+const EARLY_ACCESS_WINDOW_MS =
+    20 * 60 * 1000;
 
 /* =========================================
    SHOPIFY REQUEST
@@ -22,22 +48,17 @@ async function shopifyRequest(
     method = "GET",
     body = null
 ) {
-
     try {
-
         const response = await fetch(
             `https://${SHOPIFY_STORE}/admin/api/${SHOPIFY_API_VERSION}${endpoint}`,
             {
                 method,
-
                 headers: {
                     "X-Shopify-Access-Token":
                         SHOPIFY_ADMIN_TOKEN,
-
                     "Content-Type":
                         "application/json"
                 },
-
                 ...(body && {
                     body: JSON.stringify(body)
                 })
@@ -48,26 +69,21 @@ async function shopifyRequest(
             await response.json();
 
         if (!response.ok) {
-
             console.error(
                 "Shopify API Error:",
                 data
             );
-
             throw new Error(
                 "Shopify request failed"
             );
         }
 
         return data;
-
     } catch (err) {
-
         console.error(
             "Shopify request error:",
             err
         );
-
         throw err;
     }
 }
@@ -81,16 +97,11 @@ async function updateCollectionState({
     metafieldId,
     newState
 }) {
-
     try {
-
         const payload = {
             metafield: {
-
                 id: metafieldId,
-
                 value: newState,
-
                 type:
                     "single_line_text_field"
             }
@@ -105,9 +116,7 @@ async function updateCollectionState({
         console.log(
             `✅ Collection ${collectionId} → ${newState}`
         );
-
     } catch (err) {
-
         console.error(
             "Failed updating collection state:",
             err
@@ -122,130 +131,259 @@ async function updateCollectionState({
 function collectionHasInventory(
     products
 ) {
-
-    /*
-    =====================================
-    INVALID PRODUCTS ARRAY
-    =====================================
-    */
-
     if (!Array.isArray(products)) {
-
         console.log(
             "⚠ Invalid products array"
         );
-
         return null;
     }
 
-    /*
-    =====================================
-    TRACK VALID VARIANTS
-    =====================================
-    */
-
     let checkedVariants = 0;
 
-    /*
-    =====================================
-    LOOP PRODUCTS
-    =====================================
-    */
-
     for (const product of products) {
-
-        /*
-        =====================================
-        INVALID PRODUCT
-        =====================================
-        */
-
         if (
             !product ||
             !Array.isArray(product.variants)
         ) {
-
             console.log(
-
                 `⚠ Invalid product variants for product ${product?.id}`
-
             );
-
             continue;
         }
 
-        /*
-        =====================================
-        LOOP VARIANTS
-        =====================================
-        */
-
         for (const variant of product.variants) {
-
-            /*
-            =====================================
-            INVALID VARIANT
-            =====================================
-            */
-
             if (!variant) {
                 continue;
             }
 
             checkedVariants++;
 
-            /*
-            =====================================
-            INVENTORY
-            =====================================
-            */
-
             const inventory =
                 Number(
                     variant.inventory_quantity || 0
                 );
 
-            /*
-            =====================================
-            HAS STOCK
-            =====================================
-            */
-
             if (inventory > 0) {
-
                 console.log(
-
                     `✅ Inventory detected for variant ${variant.id}`
-
                 );
-
                 return true;
             }
         }
     }
 
-    /*
-    =====================================
-    NO VALID VARIANTS FOUND
-    =====================================
-    */
-
     if (checkedVariants === 0) {
-
         console.log(
             "⚠ No valid variants checked"
         );
-
         return null;
     }
 
-    /*
-    =====================================
-    NO STOCK FOUND
-    =====================================
-    */
-
     return false;
+}
+
+/* =========================================
+   SEND EARLY ACCESS EMAIL
+========================================= */
+
+async function sendEarlyAccessEmail({
+    collectionId,
+    collectionTitle,
+    collectionHandle,
+    password
+}) {
+    try {
+        /* =========================
+           CHECK IF ALREADY SENT
+        ========================= */
+        const redisKey =
+            `earlyaccess:sent:${collectionId}`;
+        const alreadySent =
+            await getCache(redisKey);
+
+        if (alreadySent) {
+            console.log(
+                `⏭ Early access email already sent for collection ${collectionId}`
+            );
+            return;
+        }
+
+        /* =========================
+           BUILD COLLECTION URL
+        ========================= */
+        const collectionUrl =
+            `https://${SHOPIFY_STORE}/collections/${collectionHandle}`;
+
+        /* =========================
+           SEND BROADCAST VIA RESEND
+        ========================= */
+        const { data, error } =
+            await resend.broadcasts.create({
+                audience_id: SEGMENT_ID,
+                from: process.env.RESEND_FROM_EMAIL,
+                subject: `🔓 Early Access: ${collectionTitle} drops in 20 minutes`,
+                html: `
+                    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+                        <h2>You're in early. 👀</h2>
+                        <p><strong>${collectionTitle}</strong> goes live in 20 minutes.</p>
+                        <p>Use your exclusive password to access the drop before anyone else:</p>
+                        <div style="background: #f4f4f4; padding: 16px; border-radius: 8px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 4px; margin: 24px 0;">
+                            ${password}
+                        </div>
+                        <a href="${collectionUrl}"
+                           style="display: inline-block; background: #000; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 4px; font-weight: bold;">
+                            Access the Drop
+                        </a>
+                        <p style="margin-top: 24px; font-size: 12px; color: #999;">
+                            This password will unlock the product grid before the official launch.
+                        </p>
+                    </div>
+                `
+            });
+
+        if (error) {
+            console.error(
+                "Resend broadcast error:",
+                error
+            );
+            return;
+        }
+
+        /* =========================
+           SEND BROADCAST
+        ========================= */
+        await resend.broadcasts.send(data.id);
+
+        /* =========================
+           MARK AS SENT IN REDIS
+           TTL: 7 days
+        ========================= */
+        await setCache(
+            redisKey,
+            { sent: true },
+            60 * 60 * 24 * 7
+        );
+
+        console.log(
+            `✅ Early access email sent for collection ${collectionId}`
+        );
+    } catch (err) {
+        console.error(
+            "sendEarlyAccessEmail error:",
+            err
+        );
+    }
+}
+
+/* =========================================
+   UPDATE THEME ERA
+========================================= */
+
+async function updateThemeEra(eraValue) {
+    try {
+        const color =
+            ERA_COLOR_MAP[eraValue];
+
+        if (!color) {
+            console.log(
+                `⚠ Unknown era value: ${eraValue}`
+            );
+            return;
+        }
+
+        /* =========================
+           CHECK IF UPDATE NEEDED
+        ========================= */
+        const redisKey = "theme:current_era";
+        const cached = await getCache(redisKey);
+
+        if (cached === color) {
+            console.log(
+                `⏭ Theme era already set to ${color}`
+            );
+            return;
+        }
+
+        /* =========================
+           GET MAIN THEME
+        ========================= */
+        const themesData =
+            await shopifyRequest(
+                "/themes.json"
+            );
+
+        const mainTheme =
+            themesData.themes.find(
+                t => t.role === "main"
+            );
+
+        if (!mainTheme) {
+            console.error(
+                "❌ No main theme found"
+            );
+            return;
+        }
+
+        /* =========================
+           GET CURRENT SETTINGS DATA
+        ========================= */
+        const assetData =
+            await shopifyRequest(
+                `/themes/${mainTheme.id}/assets.json?asset[key]=config/settings_data.json`
+            );
+
+        const settingsJson =
+            JSON.parse(
+                assetData.asset.value
+            );
+
+        /* =========================
+           UPDATE CURRENT ERA COLOR
+        ========================= */
+        if (
+            settingsJson.current &&
+            settingsJson.current.colors
+        ) {
+            settingsJson.current.colors.current_era =
+                color;
+        }
+
+        /* =========================
+           SAVE BACK TO SHOPIFY
+        ========================= */
+        await shopifyRequest(
+            `/themes/${mainTheme.id}/assets.json`,
+            "PUT",
+            {
+                asset: {
+                    key: "config/settings_data.json",
+                    value: JSON.stringify(
+                        settingsJson,
+                        null,
+                        2
+                    )
+                }
+            }
+        );
+
+        /* =========================
+           CACHE THE NEW VALUE
+        ========================= */
+        await setCache(
+            redisKey,
+            color,
+            60 * 60 * 24
+        );
+
+        console.log(
+            `✅ Theme era updated → ${eraValue} (${color})`
+        );
+    } catch (err) {
+        console.error(
+            "updateThemeEra error:",
+            err
+        );
+    }
 }
 
 /* =========================================
@@ -253,20 +391,16 @@ function collectionHasInventory(
 ========================================= */
 
 export async function runDropStateManager() {
-
     try {
-
         console.log(
             "🚀 Running drop state manager..."
         );
 
-        const now =
-            Date.now();
+        const now = Date.now();
 
         /* =====================================
            GET COLLECTIONS
         ===================================== */
-
         const collectionsData =
             await shopifyRequest(
                 "/custom_collections.json"
@@ -276,13 +410,16 @@ export async function runDropStateManager() {
             collectionsData.custom_collections || [];
 
         /* =====================================
+           TRACK ERA FOR THEME CONTROLLER
+        ===================================== */
+        let upcomingWithin2Days = null; // closest drop within 2 days
+        let lastLimitedEra = null;      // era of most recently limited drop
+
+        /* =====================================
            PROCESS COLLECTIONS
         ===================================== */
-
         for (const collection of collections) {
-
             try {
-
                 console.log(
                     `\n📦 ${collection.title}`
                 );
@@ -290,7 +427,6 @@ export async function runDropStateManager() {
                 /* =================================
                    GET METAFIELDS
                 ================================= */
-
                 const metafieldsData =
                     await shopifyRequest(
                         `/collections/${collection.id}/metafields.json`
@@ -299,73 +435,58 @@ export async function runDropStateManager() {
                 const metafields =
                     metafieldsData.metafields || [];
 
-                /*
-                  Drop start metafield
-                */
-
                 const dropStartField =
                     metafields.find(
                         field =>
-                            field.namespace ===
-                            "custom" &&
-                            field.key ===
-                            "drop_start"
+                            field.namespace === "custom" &&
+                            field.key === "drop_start"
                     );
-
-                /*
-                  Drop state metafield
-                */
 
                 const dropStateField =
                     metafields.find(
                         field =>
-                            field.namespace ===
-                            "custom" &&
-                            field.key ===
-                            "state"
+                            field.namespace === "custom" &&
+                            field.key === "state"
                     );
 
-                /*
-                  Skip invalid collections
-                */
+                const eraField =
+                    metafields.find(
+                        field =>
+                            field.namespace === "custom" &&
+                            field.key === "era"
+                    );
 
+                const passwordField =
+                    metafields.find(
+                        field =>
+                            field.namespace === "custom" &&
+                            field.key === "password"
+                    );
+
+                /* =================================
+                   SKIP INVALID COLLECTIONS
+                ================================= */
                 if (
                     !dropStartField ||
                     !dropStateField
                 ) {
-
                     console.log(
                         "⏭ Missing metafields"
                     );
-
                     continue;
                 }
 
                 /* =================================
                    DROP DATE
                 ================================= */
-
                 const dropStart =
                     new Date(
                         dropStartField.value
                     ).getTime();
 
-                // /* =================================
-                //    GET PRODUCTS
-                // ================================= */
-
-                // const productsData =
-                //     await shopifyRequest(
-                //         `/collections/${collection.id}/products.json`
-                //     );
-
-                // const products =
-                //     productsData.products || [];
-
                 /* =================================
                    GET COLLECTION PRODUCTS
                 ================================= */
-
                 const collectionProductsData =
                     await shopifyRequest(
                         `/collections/${collection.id}/products.json?fields=id`
@@ -377,31 +498,23 @@ export async function runDropStateManager() {
                 /* =================================
                    FETCH FULL PRODUCTS
                 ================================= */
-
                 const products = [];
 
                 for (const item of collectionProducts) {
-
                     try {
-
                         const productData =
                             await shopifyRequest(
                                 `/products/${item.id}.json`
                             );
 
                         if (productData.product) {
-
                             products.push(
                                 productData.product
                             );
                         }
-
                     } catch (err) {
-
                         console.error(
-
                             `Failed fetching product ${item.id}`,
-
                             err
                         );
                     }
@@ -410,99 +523,131 @@ export async function runDropStateManager() {
                 /* =================================
                    INVENTORY CHECK
                 ================================= */
-
                 const hasInventory =
                     collectionHasInventory(
                         products
                     );
 
-                /* =================================
-   CURRENT STATE
-================================= */
-
                 const currentState =
                     dropStateField.value;
 
-                /* =================================
-                   DEFAULT TO CURRENT STATE
-                ================================= */
-
-                let newState =
-                    currentState;
+                let newState = currentState;
 
                 /* =================================
                    BEFORE DROP
                 ================================= */
-
                 if (now < dropStart) {
+                    newState = "coming-soon";
 
-                    newState =
-                        "coming-soon";
+                    /* =============================
+                       EARLY ACCESS EMAIL
+                       Fire if within 20 min window
+                    ============================= */
+                    const timeUntilDrop =
+                        dropStart - now;
+
+                    if (
+                        timeUntilDrop <=
+                        EARLY_ACCESS_WINDOW_MS &&
+                        passwordField?.value
+                    ) {
+                        await sendEarlyAccessEmail({
+                            collectionId:
+                                collection.id,
+                            collectionTitle:
+                                collection.title,
+                            collectionHandle:
+                                collection.handle,
+                            password:
+                                passwordField.value
+                        });
+                    }
+
+                    /* =============================
+                       TRACK FOR THEME CONTROLLER
+                       Check if within 2 days
+                    ============================= */
+                    const TWO_DAYS_MS =
+                        2 * 24 * 60 * 60 * 1000;
+
+                    if (
+                        eraField?.value &&
+                        timeUntilDrop <= TWO_DAYS_MS
+                    ) {
+                        if (
+                            !upcomingWithin2Days ||
+                            dropStart <
+                            upcomingWithin2Days.dropStart
+                        ) {
+                            upcomingWithin2Days = {
+                                dropStart,
+                                era: eraField.value
+                            };
+                        }
+                    }
                 }
 
                 /* =================================
                    AFTER DROP + INVENTORY EXISTS
                 ================================= */
-
                 else if (hasInventory === true) {
+                    newState = "limited";
 
-                    newState =
-                        "limited";
+                    /* =============================
+                       TRACK LAST LIMITED ERA
+                    ============================= */
+                    if (eraField?.value) {
+                        if (
+                            !lastLimitedEra ||
+                            dropStart >
+                            lastLimitedEra.dropStart
+                        ) {
+                            lastLimitedEra = {
+                                dropStart,
+                                era: eraField.value
+                            };
+                        }
+                    }
                 }
 
                 /* =================================
                    AFTER DROP + NO INVENTORY
                 ================================= */
-
                 else if (hasInventory === false) {
-
-                    newState =
-                        "archive";
+                    newState = "archive";
                 }
 
                 /* =================================
                    INVENTORY CHECK FAILED
                 ================================= */
-
                 else {
-
                     console.log(
                         "⚠ Inventory check failed — preserving current state"
                     );
                 }
 
-                /*
-                  No update needed
-                */
-
-                if (
-                    currentState === newState
-                ) {
-
+                /* =================================
+                   NO UPDATE NEEDED
+                ================================= */
+                if (currentState === newState) {
                     console.log(
                         `⏭ Already ${newState}`
                     );
-
                     continue;
                 }
 
                 /* =================================
                    UPDATE SHOPIFY METAFIELD
                 ================================= */
-
                 await updateCollectionState({
-
                     collectionId:
                         collection.id,
-
                     metafieldId:
                         dropStateField.id,
-
                     newState
                 });
 
             } catch (err) {
-
                 console.error(
                     `❌ Failed collection ${collection.id}`,
                     err
@@ -510,12 +655,30 @@ export async function runDropStateManager() {
             }
         }
 
+        /* =====================================
+           THEME CONTROLLER
+           Run after all collections processed
+        ===================================== */
+        console.log("\n🎨 Running theme controller...");
+
+        const eraToApply =
+            upcomingWithin2Days?.era ||
+            lastLimitedEra?.era ||
+            null;
+
+        if (eraToApply) {
+            await updateThemeEra(eraToApply);
+        } else {
+            console.log(
+                "⏭ No era to apply to theme"
+            );
+        }
+
         console.log(
             "\n✅ Drop state manager completed"
         );
 
     } catch (err) {
-
         console.error(
             "Drop state manager failed:",
             err
