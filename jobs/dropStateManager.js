@@ -12,6 +12,7 @@ const SHOPIFY_ADMIN_TOKEN =
     process.env.SHOPIFY_ADMIN_TOKEN;
 const SHOPIFY_API_VERSION =
     "2024-01";
+const EMAIL_STORE_URL = 'https://streetfighterstore.co.uk';
 
 /* =========================================
    RESEND CONFIG
@@ -212,7 +213,7 @@ async function sendEarlyAccessEmail({
            BUILD COLLECTION URL
         ========================= */
         const collectionUrl =
-            `https://${SHOPIFY_STORE}/collections/${collectionHandle}`;
+            `${EMAIL_STORE_URL}/collections/${collectionHandle}`;
 
         /* =========================
            CREATE BROADCAST + SEND
@@ -223,24 +224,24 @@ async function sendEarlyAccessEmail({
             await resend.broadcasts.create({
                 segmentId: SEGMENT_ID,
                 from: process.env.RESEND_FROM_EMAIL,
-                subject: `🔓 Early Access: ${collectionTitle} drops in 20 minutes`,
+                subject: `Early access: ${collectionTitle} — your password inside`,
                 html: `
-                    <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
-                        <h2>You're in early. 👀</h2>
-                        <p><strong>${collectionTitle}</strong> goes live in 20 minutes.</p>
-                        <p>Use your exclusive password to access the drop before anyone else:</p>
-                        <div style="background: #f4f4f4; padding: 16px; border-radius: 8px; text-align: center; font-size: 24px; font-weight: bold; letter-spacing: 4px; margin: 24px 0;">
+                    <div style="font-family: Georgia, serif; max-width: 520px; margin: 0 auto; color: #111; font-size: 15px; line-height: 1.6;">
+                        <p>${collectionTitle} goes live in 20 minutes. Enter your password below to unlock the drop before it opens to everyone:</p>
+                        <div style="background: #f4f4f4; padding: 16px; border-radius: 6px; text-align: center; font-size: 26px; font-weight: bold; letter-spacing: 6px; margin: 24px 0; color: #111;">
                             ${password}
                         </div>
-                        <a href="${collectionUrl}"
-                           style="display: inline-block; background: #000; color: #fff; padding: 14px 28px; text-decoration: none; border-radius: 4px; font-weight: bold;">
-                            Access the Drop
-                        </a>
-                        <p style="margin-top: 24px; font-size: 12px; color: #999;">
-                            This password will unlock the product grid before the official launch.
+                        <p>Head to the collection page and enter the password to shop early:</p>
+                        <p>
+                            <a href="${collectionUrl}"
+                               style="display: inline-block; background: #111; color: #fff; padding: 13px 28px; text-decoration: none; border-radius: 4px; font-size: 14px; font-weight: 600; letter-spacing: 1px;">
+                                Access the Drop
+                            </a>
                         </p>
-                        <p style="font-size: 12px; color: #999;">
-                            <a href="{{{RESEND_UNSUBSCRIBE_URL}}}" style="color: #999;">Unsubscribe</a>
+                        <p>The drop opens to the public shortly after. Get in first.</p>
+                        <p style="margin-top: 40px; font-size: 12px; color: #888;">
+                            You're receiving this because you signed up for early access at officialstreetfighter.com.<br>
+                            <a href="{{{RESEND_UNSUBSCRIBE_URL}}}" style="color: #888;">Unsubscribe</a>
                         </p>
                     </div>
                 `,
