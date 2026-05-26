@@ -1,5 +1,6 @@
 import express from "express";
 import fetch from "node-fetch";
+import { getCache, setCache } from "../utils/redis.js";
 import { createShopifyFulfillment } from "../services/shopify.js";
 
 const router = express.Router();
@@ -8,8 +9,8 @@ const router = express.Router();
    MYZE CONFIG
 ========================================= */
 
-// const MYZE_BASE_URL =
-//     "https://api.myze.io";
+const MYZE_BASE_URL =
+    "https://api.myze.io";
 
 const MYZE_STORE_ID =
     process.env.MYZE_STORE_ID;
@@ -17,14 +18,8 @@ const MYZE_STORE_ID =
 const MYZE_API_KEY =
     process.env.MYZE_API_KEY;
 
-const MYZE_COMPANY_ID =
-    process.env.MYZE_COMPANY_ID;
-
 /* =========================================
    UPDATE MYZE ORDER WITH SHIPPING INFO
-   Calls Myze's external-order endpoint
-   with the label and tracking details
-   from ShipStation.
 ========================================= */
 
 async function updateMyzeOrderShipment({
@@ -32,12 +27,11 @@ async function updateMyzeOrderShipment({
     labelUrl,
     trackingUrl,
     trackingCode,
-    carrier,
-    labelFormat
+    carrier
 }) {
     try {
         const response = await fetch(
-            `https://bb6pq1fm23.execute-api.eu-central-1.amazonaws.com/test/company/${MYZE_COMPANY_ID}/store/${MYZE_STORE_ID}/external-order/${externalOrderId}`,
+            `${MYZE_BASE_URL}/store/${MYZE_STORE_ID}/external-order/${externalOrderId}`,
             {
                 method: "PUT",
                 headers: {
@@ -48,13 +42,13 @@ async function updateMyzeOrderShipment({
                 },
                 body: JSON.stringify({
                     externalShipmentInfo: {
-                        labelUrl,
+                        labelUrl:
+                            labelUrl || null,
                         trackingUrl:
                             trackingUrl || null,
                         trackingCode:
                             trackingCode || null,
-                        labelFormat:
-                            labelFormat || "pdf",
+                        labelFormat: "pdf",
                         shippingProvider:
                             carrier || null
                     }
@@ -87,179 +81,82 @@ async function updateMyzeOrderShipment({
 }
 
 /* =========================================
-   SHIPSTATION LABEL PURCHASED WEBHOOK
-   Fires when a label is bought in
-   ShipStation UI or via API.
-
-   Flow:
-   1. Receive label details from ShipStation
-   2. Update Myze order with label + tracking
-   3. Create Shopify fulfillment so customer
-      gets notified
+   FETCH LABEL DETAILS FROM SHIPSTATION
+   Given a tracking number, find the
+   associated label to get the label URL
 ========================================= */
 
-router.post(
-    "/",
-    express.json(),
-    async (req, res) => {
-        try {
-            const payload = req.body;
-
-            console.log(
-                "📬 ShipStation label webhook received"
-            );
-
-            /* =========================
-               LOG FULL PAYLOAD
-               Helpful during initial
-               testing — remove later
-            ========================= */
-            console.log(
-                "ShipStation payload:",
-                JSON.stringify(payload, null, 2)
-            );
-
-            /* =========================
-               EXTRACT LABEL DATA
-            ========================= */
-            const {
-                label_id,
-                shipment_id,
-                label_download,
-                tracking_number,
-                carrier_code,
-                carrier_id,
-                service_code,
-                shipment
-            } = payload;
-
-            if (!label_id) {
-                console.warn(
-                    "⚠ No label_id in payload — ignoring"
-                );
-                return res
-                    .status(200)
-                    .json({ ignored: true });
+async function fetchLabelByTrackingNumber(
+    trackingNumber
+) {
+    try {
+        const response = await fetch(
+            `https://api.shipstation.com/v2/labels?tracking_number=${trackingNumber}`,
+            {
+                headers: {
+                    "API-Key":
+                        process.env.SHIPSTATION_API_KEY
+                }
             }
+        );
 
-            /* =========================
-               GET EXTERNAL ORDER ID
-               This is the Shopify order
-               ID we set when creating
-               the ShipStation shipment
-            ========================= */
-            const externalOrderId =
-                shipment?.external_shipment_id;
+        if (!response.ok) return null;
 
-            if (!externalOrderId) {
-                console.error(
-                    "❌ No external_shipment_id on shipment — cannot link to Myze/Shopify"
-                );
-                return res
-                    .status(200)
-                    .json({ ignored: true });
-            }
+        const data = await response.json();
+        const labels = data.labels || [];
 
-            /* =========================
-               BUILD LABEL URL
-               label_download contains
-               href, pdf, png, zpl links
-            ========================= */
-            const labelUrl =
-                label_download?.href ||
-                label_download?.pdf ||
-                null;
+        if (!labels.length) return null;
 
-            if (!labelUrl) {
-                console.error(
-                    "❌ No label URL in payload"
-                );
-                return res
-                    .status(200)
-                    .json({ ignored: true });
-            }
-
-            /* =========================
-               BUILD TRACKING URL
-               ShipStation doesn't always
-               provide this directly —
-               construct from carrier
-               if not present
-            ========================= */
-            const trackingUrl =
-                payload.tracking_url ||
-                buildTrackingUrl(
-                    carrier_code,
-                    tracking_number
-                );
-
-            /* =========================
-               STEP 1 — UPDATE MYZE
-               Send label + tracking to
-               Myze so they can ship
-            ========================= */
-            await updateMyzeOrderShipment({
-                externalOrderId,
-                labelUrl,
-                trackingUrl,
-                trackingCode:
-                    tracking_number || null,
-                carrier:
-                    carrier_code || null,
-                labelFormat: "pdf"
-            });
-
-            /* =========================
-               STEP 2 — UPDATE SHOPIFY
-               Create fulfillment so
-               customer gets notified
-            ========================= */
-            await createShopifyFulfillment({
-                shopifyOrderId:
-                    externalOrderId,
-                trackingNumber:
-                    tracking_number || "",
-                trackingUrl:
-                    trackingUrl || "",
-                carrier:
-                    carrier_code || ""
-            });
-
-            console.log(
-                `✅ ShipStation label webhook processed for order ${externalOrderId}`
+        /* Return most recent label */
+        return labels.sort((a, b) => {
+            return (
+                new Date(b.created_at) -
+                new Date(a.created_at)
             );
-
-            return res
-                .status(200)
-                .json({ success: true });
-
-        } catch (err) {
-            console.error(
-                "❌ ShipStation webhook error:",
-                err.message
-            );
-
-            /* =========================
-               RETURN 200 EVEN ON ERROR
-               ShipStation will retry on
-               non-200 — we don't want
-               duplicate processing
-            ========================= */
-            return res
-                .status(200)
-                .json({
-                    success: false,
-                    error: err.message
-                });
-        }
+        })[0];
+    } catch (err) {
+        console.error(
+            "fetchLabelByTrackingNumber error:",
+            err.message
+        );
+        return null;
     }
-);
+}
 
 /* =========================================
-   BUILD TRACKING URL
-   Constructs a tracking URL from carrier
-   code + tracking number when ShipStation
-   doesn't provide one directly
+   FETCH SHIPMENT BY LABEL ID
+   Gets the shipment to extract the
+   external_shipment_id (Shopify order ID)
+========================================= */
+
+async function fetchShipmentByLabelId(
+    labelId
+) {
+    try {
+        const response = await fetch(
+            `https://api.shipstation.com/v2/labels/${labelId}`,
+            {
+                headers: {
+                    "API-Key":
+                        process.env.SHIPSTATION_API_KEY
+                }
+            }
+        );
+
+        if (!response.ok) return null;
+
+        return await response.json();
+    } catch (err) {
+        console.error(
+            "fetchShipmentByLabelId error:",
+            err.message
+        );
+        return null;
+    }
+}
+
+/* =========================================
+   BUILD TRACKING URL FROM CARRIER
 ========================================= */
 
 function buildTrackingUrl(
@@ -284,9 +181,219 @@ function buildTrackingUrl(
             `https://www.dhl.com/en/express/tracking.html?AWB=${trackingNumber}`
     };
 
-    return (
-        trackingUrls[carrier] || null
-    );
+    return trackingUrls[carrier] || null;
 }
+
+/* =========================================
+   SHIPSTATION TRACKING WEBHOOK
+   Fires on every tracking event.
+   We only act on "AC" (Accepted) —
+   first scan by carrier, meaning the
+   label was purchased and handed over.
+   All subsequent tracking events are
+   ignored via Redis.
+========================================= */
+
+router.post(
+    "/",
+    express.json(),
+    async (req, res) => {
+        try {
+            const payload = req.body;
+
+            console.log(
+                "📬 ShipStation tracking webhook received"
+            );
+
+            /* =========================
+               LOG FULL PAYLOAD
+               Remove after first test
+            ========================= */
+            console.log(
+                "ShipStation payload:",
+                JSON.stringify(payload, null, 2)
+            );
+
+            /* =========================
+               EXTRACT TRACKING DATA
+               Per the webhook schema:
+               tracking_number, status_code,
+               label_url are top-level
+            ========================= */
+            const {
+                tracking_number,
+                status_code,
+                label_url
+            } = payload;
+
+            if (!tracking_number) {
+                console.warn(
+                    "⚠ No tracking_number — ignoring"
+                );
+                return res
+                    .status(200)
+                    .json({ ignored: true });
+            }
+
+            /* =========================
+               ONLY PROCESS FIRST SCAN
+               AC = Accepted by carrier
+               This means label is bought
+               and package handed over.
+               All other status codes
+               (IT, DE, etc) are ignored.
+            ========================= */
+            if (status_code !== "AC") {
+                console.log(
+                    `⏭ Ignoring tracking event: ${status_code} for ${tracking_number}`
+                );
+                return res
+                    .status(200)
+                    .json({ ignored: true });
+            }
+
+            /* =========================
+               DUPLICATE PROTECTION
+               Only process AC once per
+               tracking number
+            ========================= */
+            const redisKey =
+                `shipstation:tracking:${tracking_number}`;
+
+            const alreadyProcessed =
+                await getCache(redisKey);
+
+            if (alreadyProcessed) {
+                console.log(
+                    `⏭ Already processed tracking: ${tracking_number}`
+                );
+                return res
+                    .status(200)
+                    .json({ duplicate: true });
+            }
+
+            /* =========================
+               FETCH LABEL DETAILS
+               We need the label to get
+               external_shipment_id and
+               the label download URL
+            ========================= */
+            const label =
+                await fetchLabelByTrackingNumber(
+                    tracking_number
+                );
+
+            if (!label) {
+                console.error(
+                    `❌ Could not find label for tracking number: ${tracking_number}`
+                );
+                return res
+                    .status(200)
+                    .json({ ignored: true });
+            }
+
+            /* =========================
+               GET EXTERNAL ORDER ID
+               This is the Shopify order
+               ID we set as
+               external_shipment_id when
+               creating the shipment
+            ========================= */
+            const externalOrderId =
+                label.external_shipment_id ||
+                label.shipment?.external_shipment_id;
+
+            if (!externalOrderId) {
+                console.error(
+                    "❌ No external_shipment_id on label — cannot link to order"
+                );
+                return res
+                    .status(200)
+                    .json({ ignored: true });
+            }
+
+            /* =========================
+               RESOLVE LABEL URL
+               Use from webhook payload
+               first, fall back to label
+            ========================= */
+            const resolvedLabelUrl =
+                label_url ||
+                label.label_download?.href ||
+                label.label_download?.pdf ||
+                null;
+
+            /* =========================
+               BUILD TRACKING URL
+            ========================= */
+            const trackingUrl =
+                buildTrackingUrl(
+                    label.carrier_code,
+                    tracking_number
+                );
+
+            /* =========================
+               STEP 1 — UPDATE MYZE
+            ========================= */
+            await updateMyzeOrderShipment({
+                externalOrderId,
+                labelUrl: resolvedLabelUrl,
+                trackingUrl,
+                trackingCode: tracking_number,
+                carrier: label.carrier_code
+            });
+
+            /* =========================
+               STEP 2 — UPDATE SHOPIFY
+            ========================= */
+            await createShopifyFulfillment({
+                shopifyOrderId:
+                    externalOrderId,
+                trackingNumber:
+                    tracking_number,
+                trackingUrl:
+                    trackingUrl || "",
+                carrier:
+                    label.carrier_code || ""
+            });
+
+            /* =========================
+               MARK AS PROCESSED
+               TTL: 30 days
+            ========================= */
+            await setCache(
+                redisKey,
+                { processed: true },
+                60 * 60 * 24 * 30
+            );
+
+            console.log(
+                `✅ ShipStation tracking webhook processed for order ${externalOrderId}`
+            );
+
+            return res
+                .status(200)
+                .json({ success: true });
+
+        } catch (err) {
+            console.error(
+                "❌ ShipStation webhook error:",
+                err.message
+            );
+
+            /* =========================
+               RETURN 200 EVEN ON ERROR
+               Prevents ShipStation from
+               retrying and double-processing
+            ========================= */
+            return res
+                .status(200)
+                .json({
+                    success: false,
+                    error: err.message
+                });
+        }
+    }
+);
 
 export default router;

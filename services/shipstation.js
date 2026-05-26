@@ -8,7 +8,7 @@ const SHIPSTATION_API_KEY =
     process.env.SHIPSTATION_API_KEY;
 
 const SHIPSTATION_BASE_URL =
-    "https://api.shipstation.com/v2";
+    "https://api.shipstation.com";
 
 /* =========================================
    SHIPSTATION REQUEST HELPER
@@ -250,9 +250,9 @@ export async function registerShipStationWebhook() {
                 "POST",
                 {
                     url: webhookUrl,
-                    event: "label_purchased",
+                    event: "track",
                     friendly_name:
-                        "SF Label Purchased"
+                        "SF Shipment Tracking"
                 }
             );
 
