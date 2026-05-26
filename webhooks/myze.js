@@ -8,6 +8,9 @@ import {
     shopifyRequest,
     createShopifyFulfillment
 } from "../services/shopify.js";
+import {
+    createShipStationShipment
+} from "../services/shipstation.js";
 
 const router = express.Router();
 
@@ -575,5 +578,270 @@ router.post(
         }
     }
 );
+
+
+/* =========================================
+   FULFILLMENT ORDER ITEM UPDATED WEBHOOK
+   Fires when a Myze order item is updated.
+   We listen for action: "ship" which means
+   the item is ready and waiting for a label.
+========================================= */
+
+router.post(
+    "/fulfillment-order-item-updated",
+    async (req, res) => {
+        try {
+            /* =========================
+               VERIFY SIGNATURE
+            ========================= */
+            const isValid =
+                verifySignature(req);
+
+            if (!isValid) {
+                return res.status(401).json({
+                    success: false,
+                    error: "Invalid signature"
+                });
+            }
+
+            /* =========================
+               PARSE BODY
+            ========================= */
+            const body = JSON.parse(
+                req.body.toString("utf8")
+            );
+
+            /* =========================
+               LOG FULL PAYLOAD
+               This captures the real
+               Myze payload shape so we
+               can confirm data.data fields
+               Remove after first test
+            ========================= */
+            console.log(
+                "🔍 Myze fulfillmentOrderItem.update payload:",
+                JSON.stringify(body, null, 2)
+            );
+
+            /* =========================
+               EVENT TYPE CHECK
+            ========================= */
+            if (
+                body.eventType !==
+                "fulfillmentOrderItem.update"
+            ) {
+                return res.status(200).json({
+                    success: true,
+                    ignored: true
+                });
+            }
+
+            /* =========================
+               ONLY HANDLE "ship" ACTION
+               Other actions: report-illegal,
+               report-mispick, cancel etc
+               are not our concern
+            ========================= */
+            const action =
+                body?.data?.action;
+
+            if (action !== "ship") {
+                console.log(
+                    `⏭ Ignoring Myze action: ${action}`
+                );
+                return res.status(200).json({
+                    success: true,
+                    ignored: true
+                });
+            }
+
+            /* =========================
+               ORDER ITEM ID
+               Format: "orderId-itemPosition"
+               e.g. "20230306Ab45G-3"
+               Extract order ID from it
+            ========================= */
+            const orderItemId =
+                body?.data?.id;
+
+            if (!orderItemId) {
+                console.error(
+                    "❌ Missing order item ID in payload"
+                );
+                return res.status(200).json({
+                    success: false,
+                    error: "Missing order item ID"
+                });
+            }
+
+            /* =========================
+               EXTRACT ORDER ID
+               The order ID is everything
+               before the last hyphen
+            ========================= */
+            const myzeOrderId =
+                orderItemId
+                    .split("-")
+                    .slice(0, -1)
+                    .join("-");
+
+            console.log(
+                `📦 Myze order ready for shipping: ${myzeOrderId}`
+            );
+
+            /* =========================
+               DUPLICATE PROTECTION
+               Prevent processing the same
+               order multiple times if
+               Myze retries the webhook
+            ========================= */
+            const redisKey =
+                `myze:ship:${myzeOrderId}`;
+
+            const alreadyProcessed =
+                await getCache(redisKey);
+
+            if (alreadyProcessed) {
+                console.log(
+                    `⏭ Already created ShipStation shipment for Myze order ${myzeOrderId}`
+                );
+                return res.status(200).json({
+                    success: true,
+                    duplicate: true
+                });
+            }
+
+            /* =========================
+               GET ORDER DETAILS
+               The data.data field shape
+               is unknown until first test.
+               We attempt to read from it
+               first, then fall back to
+               fetching from Shopify using
+               the Myze order ID as the
+               external order ID.
+            ========================= */
+            const orderData =
+                body?.data?.data || {};
+
+            /* =========================
+               BUILD SHIPSTATION PAYLOAD
+               We use what Myze gives us.
+               After the first real webhook,
+               update these field mappings
+               to match the actual payload.
+            ========================= */
+            const recipient = {
+                name:
+                    orderData?.recipient?.recipient ||
+                    orderData?.shippingAddress?.name ||
+                    orderData?.customerName ||
+                    "Unknown",
+                company:
+                    orderData?.recipient?.company ||
+                    orderData?.shippingAddress?.company ||
+                    null,
+                street:
+                    orderData?.recipient?.street ||
+                    orderData?.shippingAddress?.address1 ||
+                    orderData?.shippingAddress?.street ||
+                    "",
+                city:
+                    orderData?.recipient?.city ||
+                    orderData?.shippingAddress?.city ||
+                    "",
+                state:
+                    orderData?.recipient?.state ||
+                    orderData?.shippingAddress?.province ||
+                    orderData?.shippingAddress?.state ||
+                    null,
+                zip:
+                    orderData?.recipient?.zip ||
+                    orderData?.shippingAddress?.zip ||
+                    orderData?.shippingAddress?.postal_code ||
+                    null,
+                country:
+                    orderData?.recipient?.country ||
+                    orderData?.shippingAddress?.country_code ||
+                    orderData?.shippingAddress?.country ||
+                    "US",
+                phone:
+                    orderData?.recipient?.phone ||
+                    orderData?.phone ||
+                    null,
+                email:
+                    orderData?.recipient?.email ||
+                    orderData?.email ||
+                    null
+            };
+
+            const items =
+                orderData?.items ||
+                orderData?.lineItems ||
+                [];
+
+            const shopifyOrderId =
+                orderData?.externalId ||
+                orderData?.shopifyOrderId ||
+                orderData?.externalOrderId ||
+                myzeOrderId;
+
+            const shopifyOrderName =
+                orderData?.orderNumber ||
+                orderData?.name ||
+                null;
+
+            /* =========================
+               CREATE SHIPSTATION SHIPMENT
+            ========================= */
+            await createShipStationShipment({
+                externalOrderId:
+                    shopifyOrderId,
+                shopifyOrderName,
+                recipient,
+                items: items.map(item => ({
+                    name:
+                        item.name ||
+                        item.title ||
+                        item.productName ||
+                        "Item",
+                    sku:
+                        item.sku || "",
+                    quantity:
+                        item.quantity || 1,
+                    price:
+                        item.price?.amount ||
+                        item.price ||
+                        0
+                }))
+            });
+
+            /* =========================
+               MARK AS PROCESSED
+               TTL: 30 days
+            ========================= */
+            await setCache(
+                redisKey,
+                { processed: true },
+                60 * 60 * 24 * 30
+            );
+
+            return res.status(200).json({
+                success: true
+            });
+
+        } catch (err) {
+            console.error(
+                "❌ Myze fulfillment webhook error:",
+                err.message
+            );
+            return res.status(200).json({
+                success: false,
+                error: err.message
+            });
+        }
+    }
+);
+
 
 export default router;
