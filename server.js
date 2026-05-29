@@ -19,7 +19,6 @@ import earlyaccessRoute from "./routes/earlyaccess.js";
 
 import myzeWebhook from "./webhooks/myze.js";
 import shopifyOrdersWebhook from "./webhooks/shopifyOrders.js";
-import shipstationWebhook from "./webhooks/shipstation.js";
 
 /* =========================
    ENV CONFIG
@@ -70,7 +69,6 @@ app.use(cors({
 
 app.use("/webhooks/myze", myzeWebhook);
 app.use("/webhooks/shopifyOrders", shopifyOrdersWebhook);
-app.use("/webhooks/shipstation", shipstationWebhook);
 /* =========================
    JSON BODY PARSER
    EXCLUDE WEBHOOKS
