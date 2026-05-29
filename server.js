@@ -47,6 +47,7 @@ const allowedOrigins = [
     'https://street-fighter-store-2.myshopify.com',
     'https://www.street-fighter-store-2.myshopify.com',
     'https://street-fighter-store-2.myshopify.com/?preview_theme_id=197596545365',
+    'https://streetfighterstore.co.uk',
 ];
 
 app.use(cors({
