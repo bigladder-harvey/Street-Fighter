@@ -1,150 +1,66 @@
 import express from "express";
-import nodemailer from "nodemailer";
-
-import {
-    body,
-    validationResult
-} from "express-validator";
+import { Resend } from "resend";
 
 const router = express.Router();
 
-/* =========================
-   EMAIL TRANSPORTER
-========================= */
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-const transporter = nodemailer.createTransport({
-    service: "gmail",
+router.post("/", async (req, res) => {
+    try {
+        const {
+            "contact[first_name]": firstName,
+            "contact[last_name]": lastName,
+            "contact[email]": email,
+            "contact[topic]": topic,
+            "contact[body]": message,
+        } = req.body;
 
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
+        const fullName = `${firstName || ""} ${lastName || ""}`.trim();
+
+        const html = `
+      <div style="font-family: Arial, sans-serif; background:#0f0f0f; color:#fff; padding:20px;">
+        <div style="max-width:600px; margin:auto; background:#1a1a1a; border-radius:12px; overflow:hidden;">
+          
+          <div style="padding:20px; border-bottom:1px solid #333;">
+            <h2 style="margin:0; color:#fff;">New Contact Message</h2>
+            <p style="color:#aaa; font-size:14px;">Street Fighter Store</p>
+          </div>
+
+          <div style="padding:20px;">
+            <p><strong>Name:</strong> ${fullName || "N/A"}</p>
+            <p><strong>Email:</strong> ${email}</p>
+            <p><strong>Topic:</strong> ${topic || "N/A"}</p>
+
+            <div style="margin-top:20px;">
+              <p style="margin-bottom:8px;"><strong>Message:</strong></p>
+              <div style="background:#0f0f0f; padding:15px; border-radius:8px; color:#ddd;">
+                ${(message || "").replace(/\n/g, "<br>")}
+              </div>
+            </div>
+          </div>
+
+          <div style="padding:15px; border-top:1px solid #333; font-size:12px; color:#777;">
+            Sent from your website contact form
+          </div>
+
+        </div>
+      </div>
+    `;
+
+        await resend.emails.send({
+            from: "Street Fighter Store <support@notification.streetfighterstore.co.uk>",
+            to: "support@streetfighterstore.co.uk",
+            subject: `New Contact: ${topic || "General Inquiry"}`,
+            reply_to: email,
+            html,
+        });
+
+        return res.status(200).json({ success: true });
+
+    } catch (error) {
+        console.error("Contact form error:", error);
+        return res.status(500).json({ success: false });
     }
 });
-
-/* =========================
-   VALIDATION RULES
-========================= */
-
-const validateContact = [
-
-    body("name")
-        .trim()
-        .notEmpty()
-        .withMessage("Name is required")
-        .isLength({ min: 2 })
-        .withMessage("Name is too short"),
-
-    body("email")
-        .trim()
-        .isEmail()
-        .withMessage("Invalid email address"),
-
-    body("message")
-        .trim()
-        .notEmpty()
-        .withMessage("Message is required")
-        .isLength({ min: 10 })
-        .withMessage("Message must be at least 10 characters")
-];
-
-/* =========================
-   CONTACT ROUTE
-========================= */
-
-router.post(
-    "/",
-
-    validateContact,
-
-    async (req, res) => {
-
-        try {
-
-            /* =========================
-               VALIDATION CHECK
-            ========================= */
-
-            const errors = validationResult(req);
-
-            if (!errors.isEmpty()) {
-
-                return res.status(400).json({
-                    success: false,
-                    errors: errors.array()
-                });
-            }
-
-            const {
-                name,
-                email,
-                message
-            } = req.body;
-
-            console.log("📩 New contact form submission");
-
-            /* =========================
-               EMAIL CONTENT
-            ========================= */
-
-            const mailOptions = {
-
-                from: process.env.EMAIL_USER,
-
-                to: process.env.EMAIL_USER,
-
-                replyTo: email,
-
-                subject: `New Contact Form Message from ${name}`,
-
-                html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-            
-            <h2>New Contact Form Submission</h2>
-
-            <p>
-              <strong>Name:</strong><br>
-              ${name}
-            </p>
-
-            <p>
-              <strong>Email:</strong><br>
-              ${email}
-            </p>
-
-            <p>
-              <strong>Message:</strong><br>
-              ${message}
-            </p>
-
-          </div>
-        `
-            };
-
-            /* =========================
-               SEND EMAIL
-            ========================= */
-
-            await transporter.sendMail(mailOptions);
-
-            /* =========================
-               SUCCESS RESPONSE
-            ========================= */
-
-            res.json({
-                success: true,
-                message: "Message sent successfully"
-            });
-
-        } catch (err) {
-
-            console.error("Contact route error:", err.message);
-
-            res.status(500).json({
-                success: false,
-                error: "Failed to send message"
-            });
-        }
-    }
-);
 
 export default router;
