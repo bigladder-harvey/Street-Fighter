@@ -12,7 +12,6 @@ const SHOPIFY_ADMIN_TOKEN =
     process.env.SHOPIFY_ADMIN_TOKEN;
 const SHOPIFY_API_VERSION =
     "2024-01";
-const EMAIL_STORE_URL = 'https://streetfighterstore.co.uk';
 
 /* =========================================
    RESEND CONFIG
@@ -213,7 +212,7 @@ async function sendEarlyAccessEmail({
            BUILD COLLECTION URL
         ========================= */
         const collectionUrl =
-            `${EMAIL_STORE_URL}/collections/${collectionHandle}`;
+            `https://${SHOPIFY_STORE}/collections/${collectionHandle}`;
 
         /* =========================
            CREATE BROADCAST + SEND
@@ -276,7 +275,6 @@ async function sendEarlyAccessEmail({
         );
     }
 }
-
 
 /* =========================================
    UPDATE THEME ERA
@@ -537,39 +535,21 @@ export async function runDropStateManager() {
 
                 /* =================================
                    GET COLLECTION PRODUCTS
+                   Single call with only the
+                   fields needed for inventory:
+                   id + variants (for qty check)
+                   Replaces the old pattern of
+                   fetching IDs then looping over
+                   each product individually —
+                   saves N API calls per collection
                 ================================= */
                 const collectionProductsData =
                     await shopifyRequest(
-                        `/collections/${collection.id}/products.json?fields=id`
+                        `/collections/${collection.id}/products.json?fields=id,variants&limit=250`
                     );
 
-                const collectionProducts =
+                const products =
                     collectionProductsData.products || [];
-
-                /* =================================
-                   FETCH FULL PRODUCTS
-                ================================= */
-                const products = [];
-
-                for (const item of collectionProducts) {
-                    try {
-                        const productData =
-                            await shopifyRequest(
-                                `/products/${item.id}.json`
-                            );
-
-                        if (productData.product) {
-                            products.push(
-                                productData.product
-                            );
-                        }
-                    } catch (err) {
-                        console.error(
-                            `Failed fetching product ${item.id}`,
-                            err
-                        );
-                    }
-                }
 
                 /* =================================
                    INVENTORY CHECK
