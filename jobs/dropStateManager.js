@@ -538,33 +538,57 @@ export async function runDropStateManager() {
                    Single call with only the
                    fields needed for inventory:
                    id + variants (for qty check)
-                   Replaces the old pattern of
-                   fetching IDs then looping over
-                   each product individually —
-                   saves N API calls per collection
+                   Fetch product IDs first then
+                   fetch all variants in parallel.
+                   Collection products endpoint does
+                   not return variants so we use
+                   /products/{id}/variants.json.
+                   Promise.all fires all requests
+                   simultaneously — one round trip
+                   per collection not N sequential
                 ================================= */
                 const collectionProductsData =
                     await shopifyRequest(
-                        `/collections/${collection.id}/products.json?limit=250`
+                        `/collections/${collection.id}/products.json?fields=id&limit=250`
                     );
 
-                const products =
-                    collectionProductsData.products || [];
+                const productIds = (
+                    collectionProductsData.products || []
+                ).map(p => p.id);
 
                 /* =================================
-                   TEMP DEBUG LOG
-                   Remove after confirming structure
+                   FETCH ALL VARIANTS IN PARALLEL
+                   Returns id + inventory_quantity
+                   for each variant — lightweight
+                   and correct
                 ================================= */
-                if (products.length > 0) {
-                    console.log(
-                        `🔍 Sample product keys: ${Object.keys(products[0]).join(', ')}`
+                const variantResults =
+                    await Promise.all(
+                        productIds.map(async (productId) => {
+                            try {
+                                const data =
+                                    await shopifyRequest(
+                                        `/products/${productId}/variants.json?fields=id,inventory_quantity`
+                                    );
+                                return {
+                                    id: productId,
+                                    variants:
+                                        data.variants || []
+                                };
+                            } catch (err) {
+                                console.error(
+                                    `Failed fetching variants for product ${productId}:`,
+                                    err.message
+                                );
+                                return {
+                                    id: productId,
+                                    variants: []
+                                };
+                            }
+                        })
                     );
-                    console.log(
-                        `🔍 First product variants type: ${typeof products[0].variants} — value: ${JSON.stringify(products[0].variants)?.slice(0, 200)}`
-                    );
-                } else {
-                    console.log('🔍 No products returned for collection');
-                }
+
+                const products = variantResults;
 
                 /* =================================
                    INVENTORY CHECK
