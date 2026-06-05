@@ -545,7 +545,7 @@ export async function runDropStateManager() {
                 ================================= */
                 const collectionProductsData =
                     await shopifyRequest(
-                        `/collections/${collection.id}/products.json?fields=id,variants&limit=250`
+                        `/collections/${collection.id}/products.json?limit=250`
                     );
 
                 const products =
