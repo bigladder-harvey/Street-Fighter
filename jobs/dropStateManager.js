@@ -552,6 +552,21 @@ export async function runDropStateManager() {
                     collectionProductsData.products || [];
 
                 /* =================================
+                   TEMP DEBUG LOG
+                   Remove after confirming structure
+                ================================= */
+                if (products.length > 0) {
+                    console.log(
+                        `🔍 Sample product keys: ${Object.keys(products[0]).join(', ')}`
+                    );
+                    console.log(
+                        `🔍 First product variants type: ${typeof products[0].variants} — value: ${JSON.stringify(products[0].variants)?.slice(0, 200)}`
+                    );
+                } else {
+                    console.log('🔍 No products returned for collection');
+                }
+
+                /* =================================
                    INVENTORY CHECK
                 ================================= */
                 const hasInventory =
