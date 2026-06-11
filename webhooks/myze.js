@@ -661,7 +661,7 @@ function buildOrderNotificationEmail(data) {
             </td>
             <td style="padding: 14px 16px; border-bottom: 1px solid #1a1a1a; vertical-align: top; text-align: right;">
                 <span style="font-size: 12px; color: #555; font-family: monospace;">
-                    ${item.printFaces?.length ? item.printFaces.join(", ") : "—"}
+                    ${item.printMethods?.length ? item.printMethods.join(", ") : "—"}
                 </span>
             </td>
         </tr>
@@ -775,7 +775,7 @@ function buildOrderNotificationEmail(data) {
                                 <tr style="background: #161616;">
                                     <td style="padding: 10px 16px; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #444; border-bottom: 1px solid #1e1e1e;">Product</td>
                                     <td style="padding: 10px 16px; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #444; border-bottom: 1px solid #1e1e1e; text-align: center;">Qty</td>
-                                    <td style="padding: 10px 16px; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #444; border-bottom: 1px solid #1e1e1e; text-align: right;">Print Faces</td>
+                                    <td style="padding: 10px 16px; font-size: 10px; letter-spacing: 2px; text-transform: uppercase; color: #444; border-bottom: 1px solid #1e1e1e; text-align: right;">Print Method</td>
                                 </tr>
                                 ${itemRows}
                                 <!-- TOTAL ROW -->
