@@ -1,5 +1,21 @@
 import fetch from "node-fetch";
 
+const MYZE_REQUEST_TIMEOUT_MS = 15_000;
+
+export class MyzeOrderError extends Error {
+    constructor(message, {
+        outcomeUnknown = false,
+        retryable = false,
+        status = null
+    } = {}) {
+        super(message);
+        this.name = "MyzeOrderError";
+        this.outcomeUnknown = outcomeUnknown;
+        this.retryable = retryable;
+        this.status = status;
+    }
+}
+
 /* =========================================
    MYZE CONFIG
 ========================================= */
@@ -20,6 +36,12 @@ const MYZE_COMPANY_ID =
 export async function createMyzeOrder(
     shopifyOrder
 ) {
+
+    const controller = new AbortController();
+    const timeout = setTimeout(
+        () => controller.abort(),
+        MYZE_REQUEST_TIMEOUT_MS
+    );
 
     try {
 
@@ -207,7 +229,10 @@ export async function createMyzeOrder(
                     },
 
                     body:
-                        JSON.stringify(payload)
+                        JSON.stringify(payload),
+
+                    signal:
+                        controller.signal
                 }
             );
 
@@ -217,8 +242,17 @@ export async function createMyzeOrder(
         =====================================
         */
 
-        const data =
-            await response.json();
+        const responseText = await response.text();
+        let data = null;
+
+        try {
+            data = responseText ? JSON.parse(responseText) : {};
+        } catch {
+            throw new MyzeOrderError(
+                "Myze returned an unreadable response",
+                { outcomeUnknown: response.ok, status: response.status }
+            );
+        }
 
         /*
           =====================================
@@ -233,8 +267,15 @@ export async function createMyzeOrder(
                 data
             );
 
-            throw new Error(
-                "Failed creating Myze order"
+            throw new MyzeOrderError(
+                "Myze rejected the order",
+                {
+                    // A server error can be returned after work was committed.
+                    // Treat it as uncertain unless Myze documents otherwise.
+                    outcomeUnknown: response.status >= 500 || response.status === 408,
+                    retryable: response.status === 429,
+                    status: response.status
+                }
             );
         }
 
@@ -257,6 +298,17 @@ export async function createMyzeOrder(
             err
         );
 
-        throw err;
+        if (err instanceof MyzeOrderError) {
+            throw err;
+        }
+
+        throw new MyzeOrderError(
+            err.name === "AbortError"
+                ? "Myze request timed out"
+                : "Myze request failed before its result was known",
+            { outcomeUnknown: true }
+        );
+    } finally {
+        clearTimeout(timeout);
     }
 }

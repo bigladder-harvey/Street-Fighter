@@ -1,231 +1,73 @@
-import express from "express";
-
 import crypto from "crypto";
-
-import Redis from "ioredis";
-
-import {
-    createMyzeOrder
-} from "../services/myze.js";
+import express from "express";
+import { enqueueShopifyOrder } from "../services/shopifyOrderQueue.js";
 
 const router = express.Router();
 
-/* =========================================
-   REDIS
-========================================= */
+router.use(express.raw({ type: "application/json" }));
 
-const redis =
-    new Redis(
-        process.env.REDIS_URL
-    );
+function verifyShopifyWebhook({ rawBody, signature }) {
+    if (!signature || !process.env.SHOPIFY_WEBHOOK_SECRET) {
+        return false;
+    }
 
-/* =========================================
-   SHOPIFY WEBHOOK SECRET
-========================================= */
+    const expected = crypto
+        .createHmac("sha256", process.env.SHOPIFY_WEBHOOK_SECRET)
+        .update(rawBody)
+        .digest();
 
-const SHOPIFY_WEBHOOK_SECRET =
-    process.env.SHOPIFY_WEBHOOK_SECRET;
+    let received;
+    try {
+        received = Buffer.from(signature, "base64");
+    } catch {
+        return false;
+    }
 
-/* =========================================
-   RAW BODY MIDDLEWARE
-========================================= */
-
-router.use(
-    express.raw({
-        type: "application/json"
-    })
-);
-
-/* =========================================
-   VERIFY SHOPIFY WEBHOOK
-========================================= */
-
-function verifyShopifyWebhook({
-    rawBody,
-    signature
-}) {
-
-    const generatedSignature =
-        crypto
-            .createHmac(
-                "sha256",
-                SHOPIFY_WEBHOOK_SECRET
-            )
-            .update(rawBody)
-            .digest("base64");
-
-    return crypto.timingSafeEqual(
-
-        Buffer.from(
-            generatedSignature
-        ),
-
-        Buffer.from(signature)
-    );
+    return received.length === expected.length &&
+        crypto.timingSafeEqual(received, expected);
 }
 
-/* =========================================
-   ORDERS PAID WEBHOOK
-========================================= */
+router.post("/orders-paid", async (req, res) => {
+    try {
+        const signature = req.get("x-shopify-hmac-sha256");
 
-router.post(
-    "/orders-paid",
-
-    async (req, res) => {
-
-        try {
-
-            /*
-              ===================================
-              SHOPIFY HMAC
-            ===================================
-            */
-
-            const signature =
-                req.headers[
-                "x-shopify-hmac-sha256"
-                ];
-
-            /*
-              ===================================
-              VERIFY WEBHOOK
-            ===================================
-            */
-
-            const isValid =
-                verifyShopifyWebhook({
-
-                    rawBody: req.body,
-
-                    signature
-                });
-
-            if (!isValid) {
-
-                console.error(
-                    "❌ Invalid Shopify webhook"
-                );
-
-                return res.status(401).send(
-                    "Invalid signature"
-                );
-            }
-
-            /*
-              ===================================
-              PARSE ORDER
-            ===================================
-            */
-
-            const order =
-                JSON.parse(
-                    req.body.toString()
-                );
-
-            /*
-              ===================================
-              ORDER ID
-            ===================================
-            */
-
-            const orderId =
-                String(order.id);
-
-            console.log(
-                `\n🛒 Shopify Order Paid: ${order.name}`
-            );
-
-            /*
-              ===================================
-              DUPLICATE PROTECTION
-            ===================================
-            */
-
-            const redisKey =
-                `shopify_order:${orderId}`;
-
-            const alreadyProcessed =
-                await redis.get(redisKey);
-
-            if (alreadyProcessed) {
-
-                console.log(
-                    `⏭ Order already processed: ${orderId}`
-                );
-
-                return res.status(200).send(
-                    "Already processed"
-                );
-            }
-
-            /*
-              ===================================
-              CREATE MYZE ORDER
-            ===================================
-            */
-
-            const myzeResponse =
-                await createMyzeOrder(
-                    order
-                );
-
-            /*
-              ===================================
-              STORE IN REDIS
-            ===================================
-            */
-
-            await redis.set(
-
-                redisKey,
-
-                "processed",
-
-                /*
-                  Expire after 30 days
-                */
-
-                "EX",
-
-                60 *
-                60 *
-                24 *
-                30
-            );
-
-            /*
-              ===================================
-              SUCCESS
-            ===================================
-            */
-
-            console.log(
-                `✅ Successfully sent order ${order.name} to Myze`
-            );
-
-            return res.status(200).json({
-
-                success: true,
-
-                myzeResponse
-            });
-
-        } catch (err) {
-
-            console.error(
-                "❌ Shopify webhook error:",
-                err
-            );
-
-            return res.status(500).json({
-
-                success: false,
-
-                error:
-                    "Webhook processing failed"
-            });
+        if (!verifyShopifyWebhook({ rawBody: req.body, signature })) {
+            console.error("Invalid Shopify webhook signature");
+            return res.status(401).send("Invalid signature");
         }
+
+        const order = JSON.parse(req.body.toString("utf8"));
+        if (!order?.id) {
+            return res.status(400).json({ success: false, error: "Missing Shopify order ID" });
+        }
+
+        const result = await enqueueShopifyOrder({
+            order,
+            webhookId: req.get("x-shopify-webhook-id") || null,
+            eventId: req.get("x-shopify-event-id") || null
+        });
+
+        if (result.created) {
+            console.log(`Shopify order queued for Myze: ${order.name || order.id}`);
+        } else {
+            console.log(`Duplicate Shopify paid-order delivery ignored: ${order.id}`);
+        }
+
+        return res.status(result.created ? 202 : 200).json({
+            success: true,
+            queued: result.created,
+            duplicate: !result.created,
+            status: result.status
+        });
+    } catch (error) {
+        console.error("Shopify paid-order webhook error:", error);
+
+        // Shopify should retry if the order could not be stored durably.
+        return res.status(500).json({
+            success: false,
+            error: "Webhook could not be queued"
+        });
     }
-);
+});
 
 export default router;

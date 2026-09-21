@@ -19,6 +19,7 @@ import earlyaccessRoute from "./routes/earlyaccess.js";
 
 import myzeWebhook from "./webhooks/myze.js";
 import shopifyOrdersWebhook from "./webhooks/shopifyOrders.js";
+import { startShopifyOrderWorker } from "./services/shopifyOrderQueue.js";
 
 /* =========================
    ENV CONFIG
@@ -176,4 +177,6 @@ app.listen(PORT, () => {
     console.log(
         `🚀 Server running on port ${PORT}`
     );
+
+    startShopifyOrderWorker();
 });
